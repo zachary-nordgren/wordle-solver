@@ -201,7 +201,7 @@ def apply_bonuses_to_top_candidates(top_candidates, possible_words, word_ranks):
         if word_ranks and word in word_ranks:
             # Convert rank to 0-1 scale (1 = most common)
             frequency_score = 1 - (word_ranks[word] / max_rank)
-            if len(possible_words) <= 20:
+            if len(possible_words) <= 10:
                 final_score += frequency_score * 0.5
         
         # Add bonus for words that could be the answer
@@ -278,11 +278,12 @@ def main():
     
     # Strong opening words based on entropy analysis
     first_guesses = [
-        "slate", "crane", "trace", "slant", "crate",
-        "carte", "salet", "trade", "roate", "raise",
-        "soare", "stare", "react", "caret", "alert"
+        "tares", "lares", "rales", "rates", "ranes",
+        "nares", "reais", "teras", "soare", "tales",
+        "aeros", "sater", "tears", "seria", "saner",
+        "arles", "tores", "dares", "serai", "pares"
     ]
-    
+   
     # Main game loop
     guess_count = 0
     solved = False
@@ -325,7 +326,37 @@ def main():
         possible_words_history.append(possible_words.copy())
         
         # Get feedback from player
-        pattern = input("Pattern (r=gray, y=yellow, g=green) or 'skip'/'undo': ").lower()
+        pattern_input = input("Pattern (r=gray, y=yellow, g=green) or 'skip'/'undo'/'guess [word]': ").lower()
+        
+        # Handle custom guess command
+        if pattern_input.startswith("guess "):
+            parts = pattern_input.split(maxsplit=1)
+            if len(parts) == 2:
+                custom_guess = parts[1].strip().lower()
+                if len(custom_guess) == 5 and custom_guess in all_words:
+                    # Remove the automatic guess and use custom guess instead
+                    guess_history.pop()
+                    guess_history.append(custom_guess)
+                    guess = custom_guess
+                    print(f"Using custom guess: {custom_guess}")
+                    # Ask for pattern based on the custom guess
+                    pattern = input("Pattern for guess (r=gray, y=yellow, g=green): ").lower()
+                else:
+                    print(f"Invalid word '{custom_guess}'. Must be a valid 5-letter word.")
+                    # Revert state changes for this attempt
+                    guess_history.pop()
+                    possible_words_history.pop()
+                    guess_count -= 1
+                    continue
+            else:
+                print("Invalid format. Use 'guess [word]'.")
+                # Revert state changes for this attempt
+                guess_history.pop()
+                possible_words_history.pop()
+                guess_count -= 1
+                continue
+        else:
+            pattern = pattern_input
         
         # Handle undo command
         if pattern == "undo":
