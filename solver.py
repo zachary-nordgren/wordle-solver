@@ -134,20 +134,20 @@ def filter_words(guess, pattern, possible_words):
     """Filter the list of possible words based on the guess and pattern."""
     return [word for word in possible_words if evaluate_guess(guess, word) == pattern]
 
-def calculate_entropy(word, possible_words):
+def calculate_entropy(word, frequency_words):
     """
-    Calculate the entropy (information gain) for a word.
+    Calculate the entropy (information gain) for a word against frequency list words only.
     Higher entropy means the word is expected to eliminate more possibilities.
     """
     pattern_counts = defaultdict(int)
     
-    # Count how many remaining words would yield each possible pattern
-    for possible_word in possible_words:
+    # Count how many frequency words would yield each possible pattern
+    for possible_word in frequency_words:
         pattern = evaluate_guess(word, possible_word)
         pattern_counts[pattern] += 1
     
     # Calculate entropy using the formula: -sum(p * log2(p))
-    total_words = len(possible_words)
+    total_words = len(frequency_words)
     entropy = 0
     for count in pattern_counts.values():
         probability = count / total_words
@@ -157,13 +157,37 @@ def calculate_entropy(word, possible_words):
 
 # ====== WORD SELECTION FUNCTIONS ======
 
-def get_candidate_words(possible_words, all_words, excluded_words, force_possible):
-    """Determine which words to consider based on strategy and constraints."""
-    # Special case for only one possibility
-    if len(possible_words) == 1:
-        return possible_words[0], []
+def calculate_word_entropy_scores(words_to_check, frequency_words):
+    """Calculate entropy scores for all candidate words against frequency words."""
+    word_scores = {}
+    for i, word in enumerate(words_to_check):
+        # Minimal progress indicator
+        if i % 500 == 0 and i > 0:
+            print(".", end="", flush=True)
+            
+        # Calculate entropy against frequency words only
+        entropy = calculate_entropy(word, frequency_words)
+        word_scores[word] = entropy
+    
+    return word_scores
 
-    # Determine which words to check
+def find_best_guesses(possible_words, all_words, excluded_words, word_ranks, 
+                     force_possible=False):
+    """
+    Find the best guesses and display analysis.
+    """
+    # Check for special case (only one possibility)
+    if len(possible_words) == 1:
+        return possible_words[0]
+    
+    # Get frequency words that are still possible
+    frequency_words = [w for w in possible_words if w in word_ranks] if word_ranks else possible_words
+    
+    if not frequency_words:
+        print("Warning: No frequency words found in possible answers")
+        frequency_words = possible_words
+    
+    # Determine which words to check for guesses
     if force_possible:
         words_to_check = possible_words
     else:
@@ -173,78 +197,43 @@ def get_candidate_words(possible_words, all_words, excluded_words, force_possibl
     if excluded_words:
         words_to_check = [w for w in words_to_check if w not in excluded_words]
     
-    return None, words_to_check
-
-def calculate_word_entropy_scores(words_to_check, possible_words):
-    """Calculate entropy scores for all candidate words."""
-    word_scores = {}
-    for i, word in enumerate(words_to_check):
-        # Minimal progress indicator
-        if i % 500 == 0 and i > 0:
-            print(".", end="", flush=True)
-            
-        # Calculate entropy (information gain)
-        entropy = calculate_entropy(word, possible_words)
-        word_scores[word] = entropy
-    
-    return word_scores
-
-def apply_bonuses_to_top_candidates(top_candidates, possible_words, word_ranks):
-    """Apply frequency and other bonuses to the top candidate words."""
-    max_rank = max(word_ranks.values()) if word_ranks else 1
-    final_scores = []
-    
-    for word, base_score in top_candidates:
-        final_score = base_score
-        
-        # Add frequency bonus if available
-        if word_ranks and word in word_ranks:
-            # Convert rank to 0-1 scale (1 = most common)
-            frequency_score = 1 - (word_ranks[word] / max_rank)
-            if len(possible_words) <= 10:
-                final_score += frequency_score * 0.5
-        
-        # Add bonus for words that could be the answer
-        if word in possible_words:
-            # Bonus to prefer valid answers when scores are close
-            final_score += base_score * 0.01
-        
-        final_scores.append((word, final_score))
-        print(f" {word}:{base_score:.3f} -> {final_score:.3f}")
-    
-    return final_scores
-
-def find_best_guess(possible_words, all_words, excluded_words, word_ranks, 
-                   force_possible=False, top_candidates_count=10, display_scores_thresh=20):
-    """
-    Find the word with the highest expected information gain using a two-pass approach.
-    """
-    # Check for special cases (very few words)
-    best_word, words_to_check = get_candidate_words(possible_words, all_words, excluded_words, force_possible)
-    if best_word:
-        return best_word
-    
-    # Limit top candidates to available words
-    top_candidates_count = min(top_candidates_count, len(words_to_check))
-    
     print("Calculating...", end="", flush=True)
     
-    # First pass: Calculate basic entropy scores for all words
-    word_scores = calculate_word_entropy_scores(words_to_check, possible_words)
+    # Calculate entropy scores for all candidate words
+    word_scores = calculate_word_entropy_scores(words_to_check, frequency_words)
     
-    # Get the top N candidates by entropy score
-    top_candidates = sorted(word_scores.items(), key=lambda x: x[1], reverse=True)[:top_candidates_count]
+    print("|")
     
-    print("|", flush=True)
+    # Get top 5 information words
+    top_info_words = sorted(word_scores.items(), key=lambda x: x[1], reverse=True)[:5]
     
-    # Second pass: Apply bonuses and detailed scoring to top candidates
-    final_scores = apply_bonuses_to_top_candidates(top_candidates, possible_words, word_ranks)
+    # Get top 5 frequency candidates from possible words
+    if word_ranks:
+        frequency_candidates = [(w, word_ranks[w]) for w in possible_words if w in word_ranks]
+        frequency_candidates.sort(key=lambda x: x[1])  # Sort by rank (lower = more common)
+        top_frequency_words = frequency_candidates[:5]
+    else:
+        top_frequency_words = [(w, 0) for w in possible_words[:5]]
     
-    # Sort by final score and get the best word
-    final_scores.sort(key=lambda x: x[1], reverse=True)
-    best_word = final_scores[0][0]
+    # Display analysis
+    print(f"\n{len(possible_words)} possible words remaining")
+    print(f"Evaluating against {len(frequency_words)} frequency words")
     
-    return best_word
+    print("\nTop 5 information words:")
+    for word, score in top_info_words:
+        in_possible = "✓" if word in possible_words else " "
+        print(f"  {in_possible} {word}: {score:.3f}")
+    
+    print("\nTop 5 frequency candidates:")
+    for word, rank in top_frequency_words:
+        if word in word_scores:
+            info_score = word_scores[word]
+            print(f"    {word}: rank {rank}, info {info_score:.3f}")
+        else:
+            print(f"    {word}: rank {rank}")
+    
+    # Return the best information word
+    return top_info_words[0][0]
 
 # ====== MAIN GAME LOOP ======
 
@@ -305,7 +294,7 @@ def main():
                 # Decide whether to force guessing from possible words
                 force_possible = always_guess_possible or len(possible_words) <= guess_from_possible_threshold
                 
-                guess = find_best_guess(
+                guess = find_best_guesses(
                     possible_words,
                     all_words,
                     skipped_words,
@@ -314,12 +303,7 @@ def main():
                 )
                 
                 method = "from remaining options" if force_possible else "for max information"
-                print(f"\nGuess {guess_count}: {guess} {method}")
-        
-        # Show possible words if few remain
-        print(f"({len(possible_words)} possible words)")
-        if len(possible_words) <= 10:
-            print("Options:", possible_words)
+                print(f"\nSuggested guess: {guess} ({method})")
         
         # Save state for undo feature
         guess_history.append(guess)
